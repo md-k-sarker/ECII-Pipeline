@@ -13,11 +13,17 @@ Complete pipeline to run [ECII] (https://github.com/md-k-sarker/ecii)
 ```
 
 ## Steps:
-1. Annotate text file: `:scala/annotate/ directory`
-    i. Provide text files and reference-system (dbpedia-spotlight) to annotator
-    ii. Find any reference of text on the reference-system
-    iii. Save the result in excel file 
-2. Run ECII `:java/ecii-run directory`
-    i. Provide positive and negative individuals and their types and ontology to ECII system
-    ii. Strip down the ontology
-    iii. Run ECII on stripped ontology
+<ol>
+<li>Annotate text file: `:scala/annotate/ directory`
+<ol>
+    <li>Provide text files and reference-system (dbpedia-spotlight) to annotator
+    <li>Find any reference of text on the reference-system
+    <li>Save the result in excel file 
+</ol>
+<li>Run ECII `:java/ecii-run directory`
+<ol>
+    <li>Provide positive and negative individuals and their types and ontology to ECII system
+    <li>Strip down the ontology
+    <li>Run ECII on stripped ontology
+</ol>
+</ol>
