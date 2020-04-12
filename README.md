@@ -1,5 +1,5 @@
 # ECII Pipeline
-Complete pipeline to run [ECII] (https://github.com/md-k-sarker/ecii)
+Complete pipeline to run [ECII](https://github.com/md-k-sarker/ecii)
 
 
 ## Source code:
@@ -8,17 +8,19 @@ Complete pipeline to run [ECII] (https://github.com/md-k-sarker/ecii)
 ├── java
 │   └── ecii-run
 ├── python
-└── scala
+└── kotlin
     └── annotate
 ```
 
 ## Steps:
 <ol>
-<li>Annotate text file: `:scala/annotate/ directory`
+<li>Annotate a text file with respect to an ontology: `:kotlin/annotate/`
 <ol>
-    <li>Provide text files and reference-system (dbpedia-spotlight) to annotator
-    <li>Find any reference of text on the reference-system
-    <li>Save the result in excel file 
+    <li>Find entities from DBpedia in the provided file using
+    [DBpedia Spotlight](https://www.dbpedia-spotlight.org/).
+    <li>Match DBpedia entities with entities in the provided ontology and find
+    matched entities' classes.
+    <li>Save the result in CSV file.
 </ol>
 <li>Run ECII `:java/ecii-run directory`
 <ol>
