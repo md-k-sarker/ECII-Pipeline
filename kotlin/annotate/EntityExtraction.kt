@@ -38,37 +38,41 @@ import kotlin.streams.asSequence
  * into those of the local ontology.
  */
 const val DBP_PREFIX_LENGTH = 28
-/** The maximum string length we can feed to DBpedia at once. */
-const val MAX_LENGTH_DBP = 7237   // approximate
+/** The (approximate) maximum string length we can feed to DBpedia at once. */
+const val MAX_LENGTH_DBP = 7237
+/** Default DBpedia Spotlight web service location. */
+const val DBP_SERVICE = "http://model.dbpedia-spotlight.org/en/annotate"
 /** Command line usage help message. */
 const val USAGE_MESSAGE =
 """(I think this doesn't exactly adhere to usage message conventions: sorry.)
-Pretend this program runs from a binary called "ee".
-Usage: ee (<text>... | -a) -o ont [-r rep] [-e enc] [-c conf] [-u out]
+Usage: kotlin ee.jar (<text>... | -a) -o ont [-r rep]\
+                     [-e enc] [-c conf] [-u out] [-s svc]
 where
-text   is the path to a text file to annotate, with an arbitrary number of input
-         files possible, and specifying "-a" instead of a sequence of file paths
-         will run the program on all files in the working directory
+text   is the path to a text file to annotate, with an arbitrary number of
+         input files possible, and specifying "-a" instead of a sequence of
+         file paths will run the program on all files in the working directory
          (nonrecursively);
 ont    is the path to the ontology against which to match the extracted
          entities;
 rep    is the path to a text file specifying how to transform IRIs from DBpedia
-         to seek matches in the local ontology, the first line of which contains
-         the prefix with which to replace DBpedia's prefix in modifying IRIs,
-         the second line of which indicates whether (by containing the single
-         character 'y' or not) to strip replaced characters from the beginning 
-         and end of each IRI, and each subsequent line of which contains a
-         character that might appear in DBpedia's entity names, followed by a 
-         space, followed by a character with which to replace the foregoing 
-         character when seeking matches in the local ontology (by default, no
-         replacements are applied);
+         to seek matches in the local ontology, the first line of which
+         contains the prefix with which to replace DBpedia's prefix in
+         modifying IRIs, the second line of which indicates whether (by
+         containing the single character 'y' or not) to strip replaced
+         characters from the beginning and end of each IRI, and each
+         subsequent line of which contains a character that might appear in
+         DBpedia's entity names, followed by a space, followed by a character
+         with which to replace the foregoing character when seeking matches in
+         the local ontology (by default, no replacements are applied);
 enc    is the encoding (from Java's StandardCharsets—if you want a different
          one, you're out of luck) for all given text files (default UTF_8);
 conf   is the confidence level at which to make annotations (default .5);
 out    is the path of the directory to which to write outputs (default ./out,
          creating the directory if necessary, with file names based on the
          given input paths with slashes replaced by underscores and ".csv"
-         appended).
+         appended);
+svc    is the URL of the DBpedia Spotlight web service to use (default
+         "http://model.dbpedia-spotlight.org/en/annotate").
 Basically, first provide a bunch of files to annotate (or specify that you want
 the whole working directory annotated), ending the list with "-o" followed by
 the ontology path, and then provide optional arguments."""
@@ -137,14 +141,17 @@ fun niceifyString(string: String) =
         .toString()
 
 /**
- * Get DBpedia spotlight's annotations at the given [confidence] level for the
- * given [text] (assumed to be niceified) as a set of entities
- * with null local ontology components.
+ * Get DBpedia spotlight's annotations (from the given service) at the given
+ * [confidence] level for the given [text] (assumed to be niceified) as a set
+ * of entities with null local ontology components.
  *
- * Requires an Internet connection (for the DBpedia Spotlight Web Service).
+ * Requires an Internet connection by default (for the DBpedia Spotlight Web
+ * Service).
  */
-fun extractEntities(text: String, confidence: Double): HashSet<Entity> {
+fun extractEntities(text: String, confidence: Double, service: String):
+        HashSet<Entity> {
     val entities = HashSet<Entity>()
+    // remove some characters that are no-nos when POSTing
     val sentences =
         text.replace("\"", "")
             .replace("%", "")
@@ -157,32 +164,32 @@ fun extractEntities(text: String, confidence: Double): HashSet<Entity> {
         while (j < n && s.length + sentences[j].length < MAX_LENGTH_DBP)
             s.append(sentences[j++])
         i = j
-        entities.addAll(annotateChunk(s.toString().trim(), confidence))
+        entities.addAll(
+                annotateChunk(s.toString().trim(), confidence, service))
     }
 
     return entities
 }
 
 /**
- * Get DBpedia Spotlight's annotations, at the given [confidence] level, for the
- * given [chunk] (i.e., long string not comprising an entire document) of text,
- * returning them in a set of entities with null local ontology components.
+ * Get DBpedia Spotlight's annotations (from the given [service]), at the given
+ * [confidence] level, for the given [chunk] (i.e., long string not comprising
+ * an entire document) of text, returning them in a set of entities with null
+ * local ontology components.
  *
  * Assisted by https://www.baeldung.com/java-http-request; as I had never 
  * previously needed to bother with Internet programming, the following may
  * be exceedingly clumsily written (I have no way of knowing).
  * And I suspect there is a much better way to iterate over the input stream.
  *
- * Presently hard-coded to use the web service DBpedia Spotlight provides,
- * which is sometimes down.
- *
  * See also
  * https://www.oracle.com/corporate/features/jsoup-html-parsing-library.html
  * and https://jsoup.org/cookbook/extracting-data/dom-navigation
  */
-fun annotateChunk(chunk: String, confidence: Double): HashSet<Entity> {
+fun annotateChunk(chunk: String, confidence: Double, service: String):
+        HashSet<Entity> {
     // send the chunk and confidence to Spotlight
-    val con = URL("http://model.dbpedia-spotlight.org/en/annotate")
+    val con = URL(service)
         .openConnection() as HttpURLConnection
     con.requestMethod = "POST"
     con.doOutput = true
@@ -330,7 +337,8 @@ fun annotateAndMatch(
     replacements: (String) -> String = replDefault,
     encoding: Charset = StandardCharsets.UTF_8,
     confidence: Double = .5,
-    outPath: String = "out"
+    outPath: String = "out",
+    service: String = DBP_SERVICE
 ) {
     if (confidence < 0 || confidence > 1)
         throw RuntimeException("Confidence must be between 0 and 1.")
@@ -342,12 +350,13 @@ fun annotateAndMatch(
     // run the annotation pipeline for each file
     for (path in textPaths)
         writeEntities(
-            "$outPath/${path.replace("/", "")}.csv",
+            "$outPath/${path.replace("/", "_")}.csv",
             encoding,
             crossIndex(
                 extractEntities(
                     niceifyString(readFile(path, encoding)),
-                    confidence),
+                    confidence,
+                    service),
                 ontology,
                 replacements))
 }
@@ -371,7 +380,8 @@ fun amWrapper(
     repPath: String? = null,
     encoding: String = "UTF_8",
     confidence: Double = .5,
-    outPath: String = "out"
+    outPath: String = "out",
+    service: String = DBP_SERVICE
 ) = { enc: Charset ->
           annotateAndMatch(
               textPaths,
@@ -381,7 +391,8 @@ fun amWrapper(
               else replDefault,
               enc,
               confidence,
-              outPath) }(parseEncoding(encoding))
+              outPath,
+              service) }(parseEncoding(encoding))
 
 /** 
  * Return a list containing the paths of all files in the working directory.
@@ -405,7 +416,6 @@ fun listifyWD() =
 // "main" exists to interact with users via the command line and is a wrapper
 // for amWrapper, which is itself a wrapper for annotateAndMatch, which other
 // programs can call to do their dirty work.
-// ee (<text>... | -a) -o ont [-r rep] [-e enc] [-c conf] [-o out]
 fun main(args: Array<String>) {
     try {
         val endTexts = args.indexOf("-o")
@@ -424,8 +434,10 @@ fun main(args: Array<String>) {
         val conf = if (indexC > -1) args[indexC + 1].toDouble() else .5
         val indexU = args.indexOf("-u")
         val outPath = if (indexU > -1) args[indexU + 1] else "out"
+        val indexS = args.indexOf("-s")
+        val service = if (indexS > -1) args[indexS + 1] else DBP_SERVICE
 
-        amWrapper(texts, ontPath, repPath, enc, conf, outPath)
+        amWrapper(texts, ontPath, repPath, enc, conf, outPath, service)
     }
     catch (e: Exception) {
         println(
