@@ -30,8 +30,8 @@ import uk.ac.manchester.cs.owl.owlapi.OWLNamedIndividualImpl
 import kotlin.streams.asSequence
 
 // constants
-/** 
- * The length of the prefix for DBpedia entities. 
+/**
+ * The length of the prefix for DBpedia entities.
  *
  * The prefix itself is "http://dbpedia.org/resource/", but that's unimportant;
  * we only need its length so we can remove it when translating entity names
@@ -44,7 +44,7 @@ const val MAX_LENGTH_DBP = 7237
 const val DBP_SERVICE = "http://model.dbpedia-spotlight.org/en/annotate"
 /** Command line usage help message. */
 const val USAGE_MESSAGE =
-"""(I think this doesn't exactly adhere to usage message conventions: sorry.)
+        """(I think this doesn't exactly adhere to usage message conventions: sorry.)
 Usage: kotlin ee.jar (<text>... | -a) -o ont [-r rep]\
                      [-e enc] [-c conf] [-u out] [-s svc]
 where
@@ -95,8 +95,8 @@ I assume line breaks BETWEEN SENTENCES are not significant to Spotlight.
 
 /**
  * A quadruple with information about an entity, obtained from matching a pair
- * consisting of underlying [source] text and name of a DBpedia entity 
- * ([namedbp]) obtained from DBpedia Spotlight with a local ontology entity, 
+ * consisting of underlying [source] text and name of a DBpedia entity
+ * ([namedbp]) obtained from DBpedia Spotlight with a local ontology entity,
  * including [name] and names of [classes] (concatenated into a single string
  * with delimiting semicolons) to which the local entity belongs.
  *
@@ -106,10 +106,10 @@ I assume line breaks BETWEEN SENTENCES are not significant to Spotlight.
  * if the DBpedia entity matches a local one.
  */
 data class Entity(
-    val source: String,
-    val namedbp: String,
-    var name: String?,
-    var classes: String?
+        val source: String,
+        val namedbp: String,
+        var name: String? = null,
+        var classes: String? = null
 ) {
     // for inclusion in a CSV file
     override fun toString() = "$source,$namedbp,$name,$classes"
@@ -122,7 +122,7 @@ data class Entity(
  * Essentially copied from https://stackoverflow.com/a/326440.
  */
 fun readFile(path: String, encoding: Charset) =
-    String(Files.readAllBytes(Paths.get(path)), encoding).trim()
+        String(Files.readAllBytes(Paths.get(path)), encoding).trim()
 
 /**
  * Make the given [string] nice.
@@ -130,15 +130,17 @@ fun readFile(path: String, encoding: Charset) =
  * In this context, "nice" means that a line break follows each sentence (so the
  * string may still be un-nice in other ways).
  * The above may not be strictly true because this function just replaces spaces
- * with newlines when they follow characters that usually end sentences, but 
+ * with newlines when they follow characters that usually end sentences, but
  * it's a reasonable approximation and should be good enough.
+ *
+ * Admittedly, there is a bit of a problem with things like "the U.S. military".
  */
 fun niceifyString(string: String) =
-    StringBuilder(string)
-        .replace(Regex("\\. "), ".\n")
-        .replace(Regex("\\? "), "?\n")
-        .replace(Regex("\\! "), "!\n")
-        .toString()
+        StringBuilder(string)
+                .replace(Regex("\\. "), ".\n")
+                .replace(Regex("\\? "), "?\n")
+                .replace(Regex("\\! "), "!\n")
+                .toString()
 
 /**
  * Get DBpedia spotlight's annotations (from the given service) at the given
@@ -152,20 +154,20 @@ fun extractEntities(text: String, confidence: Double, service: String):
         HashSet<Entity> {
     val entities = HashSet<Entity>()
     // remove some characters that are no-nos when POSTing
-    val sentences =
-        text.replace("\"", "")
-            .replace("%", "")
-            .split("\n")
+    // a more intelligent approach might escape them instead
+    val sentences = text.replace("\"", "")
+                        .replace("%", "")
+                        .replace("&", "")
+                        .split("\n")
     val n = sentences.size
     var i = 0
     while (i < n) {
         var j = i
         val s = StringBuilder(MAX_LENGTH_DBP)
         while (j < n && s.length + sentences[j].length < MAX_LENGTH_DBP)
-            s.append(sentences[j++])
+            s.append("${sentences[j++]} ")
         i = j
-        entities.addAll(
-                annotateChunk(s.toString().trim(), confidence, service))
+        entities += annotateChunk(s.toString().trim(), confidence, service)
     }
 
     return entities
@@ -177,7 +179,7 @@ fun extractEntities(text: String, confidence: Double, service: String):
  * an entire document) of text, returning them in a set of entities with null
  * local ontology components.
  *
- * Assisted by https://www.baeldung.com/java-http-request; as I had never 
+ * Assisted by https://www.baeldung.com/java-http-request; as I had never
  * previously needed to bother with Internet programming, the following may
  * be exceedingly clumsily written (I have no way of knowing).
  * And I suspect there is a much better way to iterate over the input stream.
@@ -188,33 +190,36 @@ fun extractEntities(text: String, confidence: Double, service: String):
  */
 fun annotateChunk(chunk: String, confidence: Double, service: String):
         HashSet<Entity> {
-    // send the chunk and confidence to Spotlight
-    val con = URL(service)
-        .openConnection() as HttpURLConnection
-    con.requestMethod = "POST"
-    con.doOutput = true
-    val out = DataOutputStream(con.outputStream)
+    val entities = HashSet<Entity>()
+    // this loop should just execute once, if all goes well
     var status = 0
     while (status != 200) {
+        // send the chunk and confidence to Spotlight
+        val con = URL(service).openConnection() as HttpURLConnection
+        con.requestMethod = "POST"
+        con.doOutput = true
+        val out = DataOutputStream(con.outputStream)
         out.writeBytes("text=$chunk&confidence=$confidence")
         out.flush()
         status = con.responseCode
-    }
-    out.close()   // probably inefficient to keep opening and closing
+        out.close()   // probably inefficient to keep opening and closing
 
-    // process the output from Spotlight
-    val reader = BufferedReader(InputStreamReader(con.inputStream))
-    val response = StringBuilder()
-    var nextLine = reader.readLine()
-    while (nextLine != null) {
-        response.append(nextLine)
-        nextLine = reader.readLine()
+        if (status == 200) {
+            // process the output from Spotlight
+            val reader = BufferedReader(InputStreamReader(con.inputStream))
+            val response = StringBuilder()
+            var nextLine = reader.readLine()
+            while (nextLine != null) {
+                response.append(nextLine)
+                nextLine = reader.readLine()
+            }
+            val doc = Jsoup.parse(response.toString())
+            val content = doc.getElementsByTag("a")
+
+            for (link in content)
+                entities += Entity(link.text(), link.attr("href"))
+        }
     }
-    val doc = Jsoup.parse(response.toString())
-    val content = doc.getElementsByTag("a")
-    val entities = HashSet<Entity>()
-    for (link in content)
-        entities.add(Entity(link.text(), link.attr("href"), null, null))
 
     return entities
 }
@@ -228,23 +233,23 @@ fun annotateChunk(chunk: String, confidence: Double, service: String):
  * There may be an apter name for this function.
  */
 fun crossIndex(
-    entities: Set<Entity>,
-    ontology: OWLOntology,
-    transform: (String) -> String
+        entities: Set<Entity>,
+        ontology: OWLOntology,
+        transform: (String) -> String
 ): HashSet<Entity> {
     val outEntities = HashSet<Entity>()
     for (entity in entities) {
         val types = StringBuilder()
         val name = transform(entity.namedbp)
         for (type in
-             EntitySearcher
-                 .getTypes(OWLNamedIndividualImpl(IRI.create(name)),
-                           ontology).asSequence())
+        EntitySearcher
+                .getTypes(OWLNamedIndividualImpl(IRI.create(name)),
+                        ontology).asSequence())
             types.append("${type.asOWLClass().iri};")
         if (types.isNotEmpty()) {
             entity.name = name
             entity.classes = types.toString()
-            outEntities.add(entity)
+            outEntities += entity
         }
     }
 
@@ -252,13 +257,13 @@ fun crossIndex(
 }
 
 /**
- * Write the contents of the given set of [entities] to a four-column CSV file 
+ * Write the contents of the given set of [entities] to a four-column CSV file
  * [outfile] assuming the given [encoding].
  */
 fun writeEntities(
-    outfile: String,
-    encoding: Charset,
-    entities: Set<Entity>
+        outfile: String,
+        encoding: Charset,
+        entities: Set<Entity>
 ) {
     val writer = Files.newBufferedWriter(Paths.get(outfile), encoding)
     for (entity in entities) {
@@ -269,8 +274,8 @@ fun writeEntities(
 }
 
 /**
- * Turn the specification at the given [specificationPath] for a set of 
- * replacements into a function that applies the specified replacements to a 
+ * Turn the specification at the given [specificationPath] for a set of
+ * replacements into a function that applies the specified replacements to a
  * string.
  *
  * This would be a lot simpler if I could just read the contents of the file
@@ -296,15 +301,15 @@ fun makeReplacer(specificationPath: String, enc: Charset): (String) -> String {
         }
 
         return { s: String ->
-                 val sb = StringBuilder(s.length - DBP_PREFIX_LENGTH)
-                 var s1 = s.substring(DBP_PREFIX_LENGTH)
-                 if (stripEnds) s1 = s1.trim { it in subs }
-                 for (c in s1) sb.append(subs[c] ?: c)
-                 "$prefixLocal$sb" }
+            val sb = StringBuilder(s.length - DBP_PREFIX_LENGTH)
+            var s1 = s.substring(DBP_PREFIX_LENGTH)
+            if (stripEnds) s1 = s1.trim { it in subs }
+            for (c in s1) sb.append(subs[c] ?: c)
+            "$prefixLocal$sb" }
     }
     catch (e: Exception) {
         throw Exception("REP")
-    }    
+    }
 }
 
 /**
@@ -312,33 +317,33 @@ fun makeReplacer(specificationPath: String, enc: Charset): (String) -> String {
  * into a Charset object.
  */
 fun parseEncoding(x: String) =
-    when (x) {
-        "ISO_8859_1" -> StandardCharsets.ISO_8859_1
-        "US_ASCII" -> StandardCharsets.US_ASCII
-        "UTF_16" -> StandardCharsets.UTF_16
-        "UTF_16BE" -> StandardCharsets.UTF_16BE
-        "UTF_16LE" -> StandardCharsets.UTF_16LE
-        else -> StandardCharsets.UTF_8
-    }
+        when (x) {
+            "ISO_8859_1" -> StandardCharsets.ISO_8859_1
+            "US_ASCII" -> StandardCharsets.US_ASCII
+            "UTF_16" -> StandardCharsets.UTF_16
+            "UTF_16BE" -> StandardCharsets.UTF_16BE
+            "UTF_16LE" -> StandardCharsets.UTF_16LE
+            else -> StandardCharsets.UTF_8
+        }
 
 /**
  * Compose the other elements of this file to produce a CSV for the file at
  * each of the given [textPaths].
  *
- * Specifically, for each file, extract entities from Spotlight's annotation 
- * thereof (with the given [confidence]), find matches (that may vary according 
+ * Specifically, for each file, extract entities from Spotlight's annotation
+ * thereof (with the given [confidence]), find matches (that may vary according
  * to the given strategy for [replacements]) in a local ontology using the given
  * [searcher], and write a four-column CSV file to the directory at the given
  * [outPath].
  */
 fun annotateAndMatch(
-    textPaths: List<String>,
-    ontology: OWLOntology,
-    replacements: (String) -> String = replDefault,
-    encoding: Charset = StandardCharsets.UTF_8,
-    confidence: Double = .5,
-    outPath: String = "out",
-    service: String = DBP_SERVICE
+        textPaths: List<String>,
+        ontology: OWLOntology,
+        replacements: (String) -> String = replDefault,
+        encoding: Charset = StandardCharsets.UTF_8,
+        confidence: Double = .5,
+        outPath: String = "out",
+        service: String = DBP_SERVICE
 ) {
     if (confidence < 0 || confidence > 1)
         throw RuntimeException("Confidence must be between 0 and 1.")
@@ -350,22 +355,22 @@ fun annotateAndMatch(
     // run the annotation pipeline for each file
     for (path in textPaths)
         writeEntities(
-            "$outPath/${path.replace("/", "_")}.csv",
-            encoding,
-            crossIndex(
-                extractEntities(
-                    niceifyString(readFile(path, encoding)),
-                    confidence,
-                    service),
-                ontology,
-                replacements))
+                "$outPath/${path.substring(maxOf(0, path.lastIndexOf('/')))}.csv",
+                encoding,
+                crossIndex(
+                        extractEntities(
+                                niceifyString(readFile(path, encoding)),
+                                confidence,
+                                service),
+                        ontology,
+                        replacements))
 }
 
 /**
  * Wrapper for annotateAndMatch.
  *
- * Load the ontology from [ontologyPath] and replacements from [repPath], get 
- * the right Charset object based on [encoding], and pass everything else 
+ * Load the ontology from [ontologyPath] and replacements from [repPath], get
+ * the right Charset object based on [encoding], and pass everything else
  * through to annotateAndMatch.
  *
  * This may not be the best way to structure things, as it results in retyping
@@ -375,33 +380,33 @@ fun annotateAndMatch(
  * a lambda to the result of calling a function. It would look cleaner in ML.
  */
 fun amWrapper(
-    textPaths: List<String>,
-    ontologyPath: String,
-    repPath: String? = null,
-    encoding: String = "UTF_8",
-    confidence: Double = .5,
-    outPath: String = "out",
-    service: String = DBP_SERVICE
+        textPaths: List<String>,
+        ontologyPath: String,
+        repPath: String? = null,
+        encoding: String = "UTF_8",
+        confidence: Double = .5,
+        outPath: String = "out",
+        service: String = DBP_SERVICE
 ) = { enc: Charset ->
-          annotateAndMatch(
-              textPaths,
-              OWLManager.createOWLOntologyManager()
-                  .loadOntologyFromOntologyDocument(File(ontologyPath)),
-              if (repPath != null) makeReplacer(repPath, enc)
-              else replDefault,
-              enc,
-              confidence,
-              outPath,
-              service) }(parseEncoding(encoding))
+    annotateAndMatch(
+            textPaths,
+            OWLManager.createOWLOntologyManager()
+                    .loadOntologyFromOntologyDocument(File(ontologyPath)),
+            if (repPath != null) makeReplacer(repPath, enc)
+            else replDefault,
+            enc,
+            confidence,
+            outPath,
+            service) }(parseEncoding(encoding))
 
-/** 
+/**
  * Return a list containing the paths of all files in the working directory.
  *
  * A little inefficient: gets Path objects and turns them into strings, but
  * they'll need to be re-Pathified later. That suggests that there is a simpler
  * way to write this. Oh well.
  *
- * Adapted from 
+ * Adapted from
  * https://stonesoupprogramming.com/2017/11/30/kotlin-files-attributes-and-list-files-folders-in-directory/
  *
  * I want to inline this because it's essentially a macro with no parameters,
@@ -409,9 +414,10 @@ fun amWrapper(
  * insignificant", so I will appease it.
  */
 fun listifyWD() =
-    Files.list(Paths.get(""))
-    .collect(Collectors.toList())
-    .map { x: java.nio.file.Path -> x.toString() }
+        Files.list(Paths.get(""))
+                .collect(Collectors.toList())
+                .filter { x: java.nio.file.Path -> !x.toFile().isDirectory }
+                .map { x: java.nio.file.Path -> x.toString() }
 
 // "main" exists to interact with users via the command line and is a wrapper
 // for amWrapper, which is itself a wrapper for annotateAndMatch, which other
@@ -441,10 +447,10 @@ fun main(args: Array<String>) {
     }
     catch (e: Exception) {
         println(
-            when (e.message) {
-                "HELP" -> USAGE_MESSAGE
-                "REP" -> "Check the replacement specification."
-                else -> "Error: $e"
-            })
+                when (e.message) {
+                    "HELP" -> USAGE_MESSAGE
+                    "REP" -> "Check the replacement specification."
+                    else -> "Error: $e"
+                })
     }
 }
