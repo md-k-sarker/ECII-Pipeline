@@ -26,7 +26,7 @@ tar xzf en.tar.gz
 java -jar dbpedia-spotlight-1.0.jar en http://localhost:2222/rest
 ```
 
-Concretely, there exists a function in the Kotlin file here with signature
+Concretely, there exists a function in `EntityExtraction.kt` with signature
 ```
 fun annotateAndMatch(
     textPaths: List<String>,
@@ -57,7 +57,7 @@ file with columns for underlying text, DBpedia IRI, local ontology IRI, and
 local ontology class IRIs (separated by semicolons) to the specified output
 directory. A single line of such a CSV might look like the following.
 ```
-Moscow,http://dbpedia.org/resource/Moscow,http://example.com/Moscow,http://example.com/Cities_in_Russia;http://example.com/National_capitals
+Moscow,http://dbpedia.org/resource/Moscow,http://example.com/Moscow,http://example.com/Cities_in_Russia;http://example.com/National_capitals;
 ```
 
 You only have to provide the first two arguments; by default, IRIs are not
